@@ -4,38 +4,40 @@ from app import app
 from models import db, Restaurant, Pizza, RestaurantPizza
 
 with app.app_context():
-
-    # This will delete any existing rows
-    # so you can run the seed file multiple times without having duplicate entries in your database
-    print("Deleting data...")
-    Pizza.query.delete()
-    Restaurant.query.delete()
+    print("Deleting existing data...")
+    # Delete child records first to avoid foreign key constraint issues
     RestaurantPizza.query.delete()
+    Pizza.query.delete() # Delete pizzas
+    Restaurant.query.delete() # Delete restaurants
+    db.session.commit()
+    print("Old data deleted.")
 
     print("Creating restaurants...")
-    shack = Restaurant(name="Karen's Pizza Shack", address='address1')
-    bistro = Restaurant(name="Sanjay's Pizza", address='address2')
-    palace = Restaurant(name="Kiki's Pizza", address='address3')
-    restaurants = [shack, bistro, palace]
+    shack = Restaurant(name="Karen's Pizza Shack", address='123 Pizza Lane')
+    bistro = Restaurant(name="Sanjay's Pizza Bistro", address='456 Doughnut Drive')
+    palace = Restaurant(name="Kiki's Pizza Palace", address='789 Cheese Street')
+
+    db.session.add_all([shack, bistro, palace])
+    db.session.commit() # Commit restaurants to get their IDs before creating RestaurantPizzas
 
     print("Creating pizzas...")
+    cheese = Pizza(name="Margherita", ingredients="Dough, Tomato Sauce, Cheese, Basil")
+    pepperoni = Pizza(name="Pepperoni Supreme", ingredients="Dough, Tomato Sauce, Cheese, Pepperoni")
+    california = Pizza(name="California Veggie", ingredients="Dough, Pesto, Ricotta, Red peppers, Spinach")
 
-    cheese = Pizza(name="Emma", ingredients="Dough, Tomato Sauce, Cheese")
-    pepperoni = Pizza(
-        name="Geri", ingredients="Dough, Tomato Sauce, Cheese, Pepperoni")
-    california = Pizza(
-        name="Melanie", ingredients="Dough, Sauce, Ricotta, Red peppers, Mustard")
-    pizzas = [cheese, pepperoni, california]
+    db.session.add_all([cheese, pepperoni, california])
+    db.session.commit() # Commit pizzas to get their IDs
 
-    print("Creating RestaurantPizza...")
+    print("Creating RestaurantPizza associations...")
+    # Associate pizzas with restaurants and set prices
+    rp1 = RestaurantPizza(restaurant=shack, pizza=cheese, price=12.50)
+    rp2 = RestaurantPizza(restaurant=bistro, pizza=pepperoni, price=14.00)
+    rp3 = RestaurantPizza(restaurant=palace, pizza=california, price=15.50)
+    rp4 = RestaurantPizza(restaurant=shack, pizza=pepperoni, price=13.00) # Example: Shack also sells pepperoni
+    rp5 = RestaurantPizza(restaurant=bistro, pizza=cheese, price=12.75) # Example: Bistro also sells cheese
 
-    pr1 = RestaurantPizza(restaurant=shack, pizza=cheese, price=1)
-    pr2 = RestaurantPizza(restaurant=bistro, pizza=pepperoni, price=4)
-    pr3 = RestaurantPizza(restaurant=palace, pizza=california, price=5)
-    restaurantPizzas = [pr1, pr2, pr3]
-    db.session.add_all(restaurants)
-    db.session.add_all(pizzas)
-    db.session.add_all(restaurantPizzas)
+    db.session.add_all([rp1, rp2, rp3, rp4, rp5])
     db.session.commit()
 
     print("Seeding done!")
+
