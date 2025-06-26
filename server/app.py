@@ -6,22 +6,22 @@ from flask_restful import Api, Resource
 from sqlalchemy.exc import IntegrityError # Import for handling database integrity errors
 
 # Import db and models here. db is initialized *later* with app.init_app(app).
-# This prevents circular imports.
+# This is crucial to avoid circular imports.
 from models import db, Restaurant, Pizza, RestaurantPizza
 
-# Define the base directory for the application
+# Define base directory for SQLite database path
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-# Configure the database URI. Uses an environment variable if set, otherwise defaults to SQLite.
+# Configure database URI, defaulting to SQLite if not set in environment
 DATABASE = os.environ.get("DB_URI", f"sqlite:///{os.path.join(BASE_DIR, 'app.db')}")
 
-# Initialize the Flask application
+# Initialize Flask application
 app = Flask(__name__)
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False # Suppress SQLAlchemy track modifications warning
 app.json.compact = False # Ensure JSON output is formatted for readability
 
 # Initialize SQLAlchemy with the Flask application context.
-# This connects the 'db' object (imported from models.py) to 'app'.
+# This connects the 'db' object (from models.py) to your Flask application.
 db.init_app(app)
 
 # Initialize Flask-Migrate for database schema management
@@ -47,7 +47,7 @@ def make_validation_error_response(errors, status_code=400):
     """
     Creates a standardized JSON validation error response.
     Args:
-        errors (list): A list of validation error strings.
+        errors (list): A list of error strings.
         status_code (int): The HTTP status code (default: 400 Bad Request).
     Returns:
         flask.Response: A Flask response object.
@@ -81,31 +81,21 @@ class RestaurantByID(Resource):
     def get(self, id):
         """
         Retrieves a single restaurant by its ID.
-        If found, returns the restaurant details, including a nested list of
-        pizzas offered by that restaurant, along with their prices (from RestaurantPizza).
+        If found, returns the restaurant details including its associated
+        restaurant_pizzas, which will contain nested pizza details based
+        on RestaurantPizza's serialize_rules.
         If not found, returns a 404 error.
         """
         restaurant = Restaurant.query.get(id)
         if not restaurant:
             return make_error_response("Restaurant not found", 404)
 
-        # Serialize the restaurant, excluding its direct 'restaurant_pizzas'
-        # list to manually build the desired nested 'pizzas' data structure.
-        serialized_restaurant = restaurant.to_dict(rules=('-restaurant_pizzas',))
-
-        # Manually build the list of pizzas, including the price from the
-        # RestaurantPizza association object.
-        pizzas_data = []
-        for rp in restaurant.restaurant_pizzas:
-            pizzas_data.append({
-                "id": rp.pizza.id,
-                "name": rp.pizza.name,
-                "ingredients": rp.pizza.ingredients,
-                "price": rp.price # Crucially, get the price from the RestaurantPizza instance
-            })
-        serialized_restaurant['pizzas'] = pizzas_data
-
-        return make_response(jsonify(serialized_restaurant), 200)
+        # FIX FOR PYTEST FAILURE 1:
+        # The test expects 'restaurant_pizzas' key directly.
+        # Simply return the restaurant.to_dict() which will include
+        # 'restaurant_pizzas' key and let the model's serialize_rules
+        # handle the nesting of pizza within each RestaurantPizza object.
+        return make_response(jsonify(restaurant.to_dict()), 200)
 
     def delete(self, id):
         """
@@ -186,8 +176,7 @@ class RestaurantPizzas(Resource):
 
             # Add and commit the new entry to the database.
             # The @validates decorators in the RestaurantPizza model will
-            # automatically run here when 'new_rp' is added and raise a ValueError
-            # if validation fails (e.g., price is not within 1-30).
+            # automatically run here and raise a ValueError if price is invalid.
             db.session.add(new_rp)
             db.session.commit()
 
@@ -198,16 +187,15 @@ class RestaurantPizzas(Resource):
             return make_response(jsonify(new_rp.to_dict()), 201)
 
         except ValueError as e:
-            # Catch validation errors specifically raised by model's @validates decorators
+            # FIX FOR PYTEST FAILURE 2:
+            # The test specifically expects ["validation errors"].
             db.session.rollback() # Rollback the session to undo the failed addition
-            return make_validation_error_response([str(e)])
+            return make_validation_error_response(["validation errors"])
         except IntegrityError:
-            # Catch database integrity errors, which can occur if:
-            # - Foreign key constraints are violated (e.g., pizza_id/restaurant_id don't exist,
-            #   though handled above, this is a fallback).
-            # - Unique constraints are violated (e.g., trying to add a duplicate entry if one were defined).
+            # Catch database integrity errors (e.g., if you tried to add a duplicate
+            # entry on a unique constraint, or a foreign key that doesn't exist).
             db.session.rollback()
-            return make_validation_error_response(["A database integrity error occurred (e.g., invalid ID or duplicate entry)."])
+            return make_validation_error_response(["A database integrity error occurred (e.g., duplicate entry or invalid foreign key reference)."])
         except Exception as e:
             # Catch any other unexpected errors during the process
             db.session.rollback()
